@@ -17,6 +17,7 @@ using DocumentFormat.OpenXml.Packaging;
 using System.Drawing;
 using System.Security.Cryptography;
 using OpenXmlPowerTools;
+using DocumentFormat.OpenXml.Wordprocessing;
 
 // It is possible to optimize DescendantContentAtoms
 
@@ -60,7 +61,8 @@ namespace OpenXmlPowerTools
         public CultureInfo CultureInfo = null;
         public Action<string> LogCallback = null;
         public int StartingIdForFootnotesEndnotes = 1;
-
+        public bool TrackMoves { get; set; } = false;
+        public bool TrackFormatting { get; set; } = false;
         public DirectoryInfo DebugTempFileDi;
 
         public WmlComparerSettings()
@@ -79,7 +81,7 @@ namespace OpenXmlPowerTools
     {
         public WmlDocument RevisedDocument;
         public string Revisor;
-        public Color Color;
+        public System.Drawing.Color Color;
     }
 
     public static class WmlComparer
@@ -91,6 +93,168 @@ namespace OpenXmlPowerTools
         public static WmlDocument Compare(WmlDocument source1, WmlDocument source2, WmlComparerSettings settings)
         {
             return CompareInternal(source1, source2, settings, true);
+        }
+        public static WmlDocument CompareDocuments(string filePath1, string filePath2, WmlComparerSettings settings)
+        {
+            using (WordprocessingDocument doc1 = WordprocessingDocument.Open(filePath1, false))
+            using (WordprocessingDocument doc2 = WordprocessingDocument.Open(filePath2, false))
+            {
+                // Perform basic document comparison
+                var comparedDocument = BasicDocumentComparison(filePath1, filePath2);
+
+                // Load the WmlDocument into a WordprocessingDocument for further manipulations
+                using (var memoryStream = new System.IO.MemoryStream())
+                {
+                    memoryStream.Write(comparedDocument.DocumentByteArray, 0, comparedDocument.DocumentByteArray.Length);
+                    using (WordprocessingDocument resultDoc = WordprocessingDocument.Open(memoryStream, true))
+                    {
+                        // Handle tracking moves if enabled
+                        if (settings.TrackMoves)
+                        {
+                            DetectAndTrackTextMoves(doc1, resultDoc);
+                        }
+
+                        // Handle tracking formatting changes if enabled
+                        if (settings.TrackFormatting)
+                        {
+                            TrackFormattingChanges(resultDoc);
+                        }
+
+                        // Save changes back to the WmlDocument
+                        resultDoc.MainDocumentPart.Document.Save();
+                    }
+
+                    return new WmlDocument("ComparedDocument.docx", memoryStream.ToArray());
+                }
+            }
+        }
+
+        private static WmlDocument BasicDocumentComparison(string doc1, string doc2)
+        {
+            // Perform the basic comparison logic here
+            // Return the resulting WmlDocument
+            return WmlComparer.Compare(new WmlDocument(doc1), new WmlDocument(doc2), new WmlComparerSettings());
+        }
+
+        private static void DetectAndTrackTextMoves(WordprocessingDocument comparedDoc, WordprocessingDocument doc1)
+        {
+            // Get the bodies of both documents
+            var comparedBody = comparedDoc.MainDocumentPart.Document.Body;
+            var originalBody = doc1.MainDocumentPart.Document.Body;
+
+            // Compare paragraphs between original and compared document
+            var comparedParagraphs = comparedBody.Elements<Paragraph>().ToList();
+            var originalParagraphs = originalBody.Elements<Paragraph>().ToList();
+
+            // Loop through paragraphs in the original document to detect moves
+            foreach (var originalParagraph in originalParagraphs)
+            {
+                // Find matching or similar paragraphs in the compared document
+                var matchingParagraph = FindMatchingParagraph(originalParagraph, comparedParagraphs);
+
+                if (matchingParagraph != null)
+                {
+                    // Compare runs (text elements) in matching paragraphs to detect moved text
+                    var originalRuns = originalParagraph.Elements<Run>().ToList();
+                    var comparedRuns = matchingParagraph.Elements<Run>().ToList();
+
+                    DetectAndTrackRunMoves(originalRuns, comparedRuns);
+                }
+            }
+        }
+
+        // Function to find matching paragraph based on text content or other criteria
+        private static Paragraph FindMatchingParagraph(Paragraph originalParagraph, List<Paragraph> comparedParagraphs)
+        {
+            foreach (var comparedParagraph in comparedParagraphs)
+            {
+                if (ParagraphsAreSimilar(originalParagraph, comparedParagraph))
+                {
+                    return comparedParagraph;
+                }
+            }
+            return null;
+        }
+
+        // Function to compare paragraphs (you can define this as needed)
+        private static bool ParagraphsAreSimilar(Paragraph originalParagraph, Paragraph comparedParagraph)
+        {
+            // This is a simple text comparison; you could add more sophisticated checks
+            return originalParagraph.InnerText == comparedParagraph.InnerText;
+        }
+
+        // Function to detect and track moves between runs
+        private static void DetectAndTrackRunMoves(List<Run> originalRuns, List<Run> comparedRuns)
+        {
+            // Loop through runs in the original document
+            for (int i = 0; i < originalRuns.Count; i++)
+            {
+                var originalRun = originalRuns[i];
+
+                // Find matching or similar run in the compared document
+                var matchingRun = FindMatchingRun(originalRun, comparedRuns);
+
+                if (matchingRun == null)
+                {
+                    // This means the run was moved, so we mark it as `moveFrom` in the original document
+                    var moveFromRun = new MoveFromRun(new Run(new Text(originalRun.InnerText)));
+                    originalRun.InsertBeforeSelf(moveFromRun);
+
+                    // Add a `moveTo` element in the compared document
+                    var moveToRun = new MoveToRun(new Run(new Text(originalRun.InnerText)));
+                    if (i < comparedRuns.Count)
+                    {
+                        comparedRuns[i].InsertBeforeSelf(moveToRun);
+                    }
+                    else
+                    {
+                        comparedRuns.Last().InsertAfterSelf(moveToRun);
+                    }
+                }
+            }
+        }
+
+        // Function to find matching run based on text content or other criteria
+        private static Run FindMatchingRun(Run originalRun, List<Run> comparedRuns)
+        {
+            foreach (var comparedRun in comparedRuns)
+            {
+                if (RunsAreSimilar(originalRun, comparedRun))
+                {
+                    return comparedRun;
+                }
+            }
+            return null;
+        }
+
+        // Function to compare runs (you can define this as needed)
+        private static bool RunsAreSimilar(Run originalRun, Run comparedRun)
+        {
+            // This is a simple text comparison; you could add more sophisticated checks
+            return originalRun.InnerText == comparedRun.InnerText;
+        }
+
+        private static void TrackFormattingChanges(WordprocessingDocument comparedDoc)
+        {
+            var body = comparedDoc.MainDocumentPart.Document.Body;
+            // Detect formatting changes (bold, italics, etc.) and apply them as tracked changes
+            foreach (var run in body.Descendants<Run>())
+            {
+                var currentFormatting = run.RunProperties;
+                // Assuming there's some logic to compare current formatting with previous document
+                // If formatting has changed, apply appropriate `w:change` elements
+                // Mark the text as formatted change
+
+                if (HasFormattingChanged(run))
+                {
+                    run.RunProperties.InsertBeforeSelf(currentFormatting);
+                }
+            }
+        }
+
+        private static bool HasFormattingChanged(Run run)
+        {
+            return false; 
         }
 
         private static WmlDocument CompareInternal(WmlDocument source1, WmlDocument source2, WmlComparerSettings settings,
@@ -503,7 +667,7 @@ namespace OpenXmlPowerTools
         private class ConsolidationInfo
         {
             public string Revisor;
-            public Color Color;
+            public System.Drawing.Color Color;
             public XElement RevisionElement;
             public bool InsertBefore = false;
             public string RevisionHash;
@@ -1254,7 +1418,7 @@ namespace OpenXmlPowerTools
                                     table,
                                     emptyParagraph,
                                 };
-								
+
                 var dummyElement = new XElement("dummy", content);
 
                 foreach (var rev in dummyElement.Descendants().Where(d => d.Attribute(W.author) != null))
@@ -5420,7 +5584,7 @@ namespace OpenXmlPowerTools
                                 {
                                     var charValue = dca.ContentElement.Value;
                                     var isWordSplit = ((int)charValue[0] >= 0x4e00 && (int)charValue[0] <= 0x9fff);
-                                    if (! isWordSplit)
+                                    if (!isWordSplit)
                                         isWordSplit = settings.WordSeparators.Contains(charValue[0]);
                                     if (isWordSplit)
                                         return false;
