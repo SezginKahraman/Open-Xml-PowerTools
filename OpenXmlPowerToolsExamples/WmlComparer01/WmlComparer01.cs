@@ -22,9 +22,10 @@ namespace OpenXmlPowerTools
 
             WmlComparerSettings settings = new WmlComparerSettings();
             WmlDocument result = WmlComparer.Compare(
-                new WmlDocument("../../Source1.docx"),
-                new WmlDocument("../../Source2.docx"),
+               new WmlDocument(@"C:\Users\sezgi\source\repos\Open-Xml-PowerTools\OpenXmlPowerToolsExamples\WmlComparer01\Source1.docx"),
+               new WmlDocument(@"C:\Users\sezgi\source\repos\Open-Xml-PowerTools\OpenXmlPowerToolsExamples\WmlComparer01\Source2.docx"),
                 settings);
+
             result.SaveAs(Path.Combine(tempDi.FullName, "Compared.docx"));
 
             var revisions = WmlComparer.GetRevisions(result, settings);

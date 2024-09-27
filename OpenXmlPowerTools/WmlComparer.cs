@@ -1254,7 +1254,7 @@ namespace OpenXmlPowerTools
                                     table,
                                     emptyParagraph,
                                 };
-								
+
                 var dummyElement = new XElement("dummy", content);
 
                 foreach (var rev in dummyElement.Descendants().Where(d => d.Attribute(W.author) != null))
@@ -1690,7 +1690,6 @@ namespace OpenXmlPowerTools
                             rootNamespaceAttributes,
                             new XElement(W.body, newBodyChildren)));
                     MarkContentAsDeletedOrInserted(newXDoc, settings);
-                    CoalesceAdjacentRunsWithIdenticalFormatting(newXDoc);
                     IgnorePt14Namespace(newXDoc.Root);
 
                     ProcessFootnoteEndnote(settings,
@@ -3107,32 +3106,25 @@ namespace OpenXmlPowerTools
             var listOfComparisonUnitAtoms = correlatedSequence
                 .Select(cs =>
                 {
-
-                    // need to write some code here to find out if we are assembling a paragraph (or anything) that contains the following unid.
-                    // why do are we dropping content???????
-                    //string searchFor = "0ecb9184";
-
-
-
-
-
-
-
-
-
-
-
                     if (cs.CorrelationStatus == CorrelationStatus.Equal)
                     {
                         var contentAtomsBefore = cs
                             .ComparisonUnitArray1
                             .Select(ca => ca.DescendantContentAtoms())
-                            .SelectMany(m => m);
+                            .SelectMany(m => m).Select(m =>
+                            {
+                                m.CorrelatedSHA1Hash = cs.ComparisonUnitArray1.FirstOrDefault().SHA1Hash;
+                                return m;
+                            });
 
                         var contentAtomsAfter = cs
                             .ComparisonUnitArray2
                             .Select(ca => ca.DescendantContentAtoms())
-                            .SelectMany(m => m);
+                            .SelectMany(m => m).Select(m =>
+                            {
+                                m.CorrelatedSHA1Hash = cs.ComparisonUnitArray1.FirstOrDefault().SHA1Hash;
+                                return m;
+                            });
 
                         var comparisonUnitAtomList = contentAtomsBefore
                             .Zip(contentAtomsAfter,
@@ -3143,6 +3135,7 @@ namespace OpenXmlPowerTools
                                         CorrelationStatus = CorrelationStatus.Equal,
                                         ContentElementBefore = before.ContentElement,
                                         ComparisonUnitAtomBefore = before,
+                                        CorrelatedSHA1Hash = before.CorrelatedSHA1Hash
                                     };
                                 })
                             .ToList();
@@ -3155,10 +3148,15 @@ namespace OpenXmlPowerTools
                             .Select(ca => ca.DescendantContentAtoms())
                             .SelectMany(m => m)
                             .Select(ca =>
-                                new ComparisonUnitAtom(ca.ContentElement, ca.AncestorElements, ca.Part, settings)
                                 {
-                                    CorrelationStatus = CorrelationStatus.Deleted,
-                                });
+                                    ca = new ComparisonUnitAtom(ca.ContentElement, ca.AncestorElements, ca.Part, settings)
+                                    {
+                                        CorrelationStatus = CorrelationStatus.Deleted,
+                                        CorrelatedSHA1Hash = cs.ComparisonUnitArray1.FirstOrDefault().SHA1Hash
+                                    };
+                                    return ca;
+                                }
+                            );
 
                         return comparisonUnitAtomList;
                     }
@@ -3169,10 +3167,17 @@ namespace OpenXmlPowerTools
                             .Select(ca => ca.DescendantContentAtoms())
                             .SelectMany(m => m)
                             .Select(ca =>
-                                new ComparisonUnitAtom(ca.ContentElement, ca.AncestorElements, ca.Part, settings)
+                            {
+                                ca = new ComparisonUnitAtom(ca.ContentElement, ca.AncestorElements, ca.Part, settings)
                                 {
                                     CorrelationStatus = CorrelationStatus.Inserted,
-                                });
+                                    CorrelatedSHA1Hash = cs.ComparisonUnitArray2.FirstOrDefault().SHA1Hash
+                                };
+                        
+                                return ca;
+                            }
+                            );
+                                
                         return comparisonUnitAtomList;
                     }
                     else
@@ -4572,15 +4577,18 @@ namespace OpenXmlPowerTools
                                     return (object)(new XElement(W.delText,
                                         new XAttribute(PtOpenXml.Status, "Deleted"),
                                         GetXmlSpaceAttribute(textOfTextElement),
+                                        new XAttribute(W.id, gc.First().CorrelatedSHA1Hash),
                                         textOfTextElement));
                                 else if (ins)
                                     return (object)(new XElement(W.t,
                                         new XAttribute(PtOpenXml.Status, "Inserted"),
                                         GetXmlSpaceAttribute(textOfTextElement),
+                                        new XAttribute(W.id, gc.First().CorrelatedSHA1Hash),
                                         textOfTextElement));
                                 else
                                     return (object)(new XElement(W.t,
                                         GetXmlSpaceAttribute(textOfTextElement),
+                                        new XAttribute(W.id, gc.First().CorrelatedSHA1Hash),
                                         textOfTextElement));
                             })
                             .ToList();
@@ -5420,7 +5428,7 @@ namespace OpenXmlPowerTools
                                 {
                                     var charValue = dca.ContentElement.Value;
                                     var isWordSplit = ((int)charValue[0] >= 0x4e00 && (int)charValue[0] <= 0x9fff);
-                                    if (! isWordSplit)
+                                    if (!isWordSplit)
                                         isWordSplit = settings.WordSeparators.Contains(charValue[0]);
                                     if (isWordSplit)
                                         return false;
@@ -7218,6 +7226,7 @@ namespace OpenXmlPowerTools
         public ComparisonUnitAtom ComparisonUnitAtomBefore;
         public OpenXmlPart Part;
         public XElement RevTrackElement;
+        public string CorrelatedSHA1Hash;
 
         public ComparisonUnitAtom(XElement contentElement, XElement[] ancestorElements, OpenXmlPart part, WmlComparerSettings settings)
         {
