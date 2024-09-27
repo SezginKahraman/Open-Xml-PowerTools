@@ -1693,7 +1693,6 @@ namespace OpenXmlPowerTools
 
                     MarkContentAsDeletedOrInserted(newXDoc, settings);
                     IgnorePt14Namespace(newXDoc.Root);
-                    //CoalesceAdjacentRunsWithIdenticalFormatting(newXDoc);
                     CompareAndInsertSourcesToResultDocument(newXDocCopy, correlatedSequence, cus1, cus2);
                     ProcessFootnoteEndnote(settings,
                         listOfComparisonUnitAtoms,
