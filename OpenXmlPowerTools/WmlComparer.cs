@@ -1689,9 +1689,12 @@ namespace OpenXmlPowerTools
                         new XElement(W.document,
                             rootNamespaceAttributes,
                             new XElement(W.body, newBodyChildren)));
+                    XDocument newXDocCopy = new XDocument(newXDoc);
+
                     MarkContentAsDeletedOrInserted(newXDoc, settings);
                     IgnorePt14Namespace(newXDoc.Root);
-
+                    //CoalesceAdjacentRunsWithIdenticalFormatting(newXDoc);
+                    CompareAndInsertSourcesToResultDocument(newXDocCopy, correlatedSequence, cus1, cus2);
                     ProcessFootnoteEndnote(settings,
                         listOfComparisonUnitAtoms,
                         wDoc1.MainDocumentPart,
@@ -1750,6 +1753,56 @@ namespace OpenXmlPowerTools
                     part.PutXDocument();
                 var updatedWmlResult = new WmlDocument("Dummy.docx", ms.ToArray());
                 return updatedWmlResult;
+            }
+        }
+
+        private static void CompareAndInsertSourcesToResultDocument(XDocument newXDocCopy, List<CorrelatedSequence> sequenceList, ComparisonUnit[] cus1, ComparisonUnit[] cus2)
+        {
+            XNamespace wpNamespace = "http://schemas.openxmlformats.org/wordprocessingml/2006/main";
+
+            var elements = newXDocCopy.Descendants(wpNamespace + "p").ToList();
+            var seqIndex = 0;
+            var source1Para = 0;
+            var source2Para = 0;
+
+            for (int i = 0; i < elements.Count; i++)
+            {
+                var element = elements[i];
+                var sequence = sequenceList[seqIndex];
+
+                switch (sequence.CorrelationStatus)
+                {
+                    case CorrelationStatus.Inserted:
+                        element.Add(new XAttribute($"sInfo2", seqIndex));
+                        seqIndex++;
+                        break;
+                    case CorrelationStatus.Deleted:
+                        if (sequence.ComparisonUnitArray1.Length == 1)
+                        {
+                            source1Para = cus1.ToList().IndexOf(cus1.FirstOrDefault(t => t.SHA1Hash == sequence.ComparisonUnitArray1.FirstOrDefault().SHA1Hash));
+                            element.Add(new XAttribute($"sInfo1", source1Para + 1));
+                            seqIndex++;
+                        }
+                        break;
+                    case CorrelationStatus.Equal:
+                        if (sequence.ComparisonUnitArray1.Length == 1)
+                        {
+                            source1Para = cus1.ToList().IndexOf(cus1.FirstOrDefault(t => t.SHA1Hash == sequence.ComparisonUnitArray1.FirstOrDefault().SHA1Hash));
+                            source2Para = cus2.ToList().IndexOf(cus2.FirstOrDefault(t => t.SHA1Hash == sequence.ComparisonUnitArray2.FirstOrDefault().SHA1Hash));
+                            element.Add(new XAttribute($"sInfo1", source1Para + 1));
+                            element.Add(new XAttribute($"sInfo2", source2Para + 1));
+                            seqIndex++;
+                            break;
+                        }
+                        if (sequenceList[seqIndex+1].CorrelationStatus == CorrelationStatus.Deleted && sequenceList[seqIndex+2].CorrelationStatus == CorrelationStatus.Equal)
+                        {
+                            element.Add(new XAttribute($"sInfo1", seqIndex));
+                            seqIndex+= 3;
+                        }
+                        break;
+                    default:
+                        break;
+                }
             }
         }
 
@@ -3122,7 +3175,7 @@ namespace OpenXmlPowerTools
                             .Select(ca => ca.DescendantContentAtoms())
                             .SelectMany(m => m).Select(m =>
                             {
-                                m.CorrelatedSHA1Hash = cs.ComparisonUnitArray1.FirstOrDefault().SHA1Hash;
+                                m.CorrelatedSHA1Hash = cs.ComparisonUnitArray2.FirstOrDefault().SHA1Hash;
                                 return m;
                             });
 
@@ -3173,11 +3226,11 @@ namespace OpenXmlPowerTools
                                     CorrelationStatus = CorrelationStatus.Inserted,
                                     CorrelatedSHA1Hash = cs.ComparisonUnitArray2.FirstOrDefault().SHA1Hash
                                 };
-                        
+
                                 return ca;
                             }
                             );
-                                
+
                         return comparisonUnitAtomList;
                     }
                     else
