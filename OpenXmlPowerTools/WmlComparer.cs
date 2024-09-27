@@ -1689,11 +1689,10 @@ namespace OpenXmlPowerTools
                         new XElement(W.document,
                             rootNamespaceAttributes,
                             new XElement(W.body, newBodyChildren)));
-                    XDocument newXDocCopy = new XDocument(newXDoc);
 
                     MarkContentAsDeletedOrInserted(newXDoc, settings);
                     IgnorePt14Namespace(newXDoc.Root);
-                    CompareAndInsertSourcesToResultDocument(newXDocCopy, correlatedSequence, cus1, cus2);
+                    CompareAndInsertSourcesToResultDocument(newXDoc, correlatedSequence, cus1, cus2);
                     ProcessFootnoteEndnote(settings,
                         listOfComparisonUnitAtoms,
                         wDoc1.MainDocumentPart,
